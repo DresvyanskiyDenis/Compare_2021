@@ -23,11 +23,11 @@ def calculate_weighted_voting(predictions:np.ndarray, weights:np.ndarray)->int:
     :return: int
             predicted class
     """
-    num_classes=weights.shape[1]
+    num_classes=weights.shape[0]
     class_scores=np.zeros(num_classes)
     for class_idx in range(num_classes):
         who_voted_for_this_class=predictions==class_idx
-        class_score=(1.*weights[who_voted_for_this_class, class_idx]).sum()
+        class_score=(1.*weights[class_idx,who_voted_for_this_class]).sum()
         class_scores[class_idx]=class_score
     predicted_class=class_scores.argmax()
     return predicted_class
@@ -56,14 +56,15 @@ if __name__=='__main__':
     path_to_predictions='D:\\Downloads\\best_preds_for_voting.csv'
     path_to_save='weighted_predictions'
     num_classes=3
-    num_weights=20000
+    num_weights=1000000
+    np.set_printoptions(precision=5)
     predictions_df=read_csv_file_with_predictions(path_to_predictions)
     filenames=predictions_df.iloc[:,0].values
     predictions_values=predictions_df.iloc[:,3:].values
     ground_truth_labels=predictions_df.iloc[:,1].values.reshape((-1,))
     oxanas_predictions=predictions_df.iloc[:,2].values.reshape((-1,))
     # generate weights
-    weights=np.random.dirichlet(alpha=np.ones((num_classes,)), size=(num_weights,predictions_values.shape[1]))
+    weights=np.random.dirichlet(alpha=np.ones((predictions_values.shape[1],)), size=(num_weights,num_classes))
     best_UAR=0
     best_weights=None
     best_predictions=None
@@ -76,13 +77,13 @@ if __name__=='__main__':
         current_predictions=do_weighted_prediction_to_all_instances(predictions_values, weights[weights_idx]).reshape((-1,))
         metric=recall_score(ground_truth_labels, current_predictions, average='macro')
         if metric>best_UAR:
-            print('new best weights are found. UAR:%f. Weights:%s'%(metric,weights[weights_idx]))
+            print('new best weights are found. UAR:%f.Weights:%s.'%(metric,weights[weights_idx]))
             best_UAR=metric
             best_weights=weights[weights_idx]
             best_predictions=current_predictions
+            if not os.path.exists(path_to_save):
+                os.mkdir(path_to_save)
+            save_predictions(path_to_save, best_predictions, filenames)
+            np.savetxt(os.path.join(path_to_save, 'weights.txt'), best_weights)
 
     print('Best UAR:%f, Best weights:%s'%(best_UAR, best_weights))
-    if not os.path.exists(path_to_save):
-        os.mkdir(path_to_save)
-    save_predictions(path_to_save, best_predictions, filenames)
-    np.savetxt(os.path.join(path_to_save,'weights.txt'), best_weights)
