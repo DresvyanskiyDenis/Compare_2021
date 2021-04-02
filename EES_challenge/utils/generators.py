@@ -450,11 +450,20 @@ class ChunksGenerator_preprocessing(tf.keras.utils.Sequence):
         window_length_in_units = int(self.window_length * sample_rate)
         window_step_in_units = int(np.ceil((sequence.shape[0] - window_length_in_units) / (self.num_chunks - 1)))
         # cut data with special function in audio_preprocessing_utils.py
-        cut_data = cut_data_on_chunks(data=sequence, chunk_length=window_length_in_units,
+        if sequence.shape[0]<window_length_in_units:
+            tmp_arr=np.zeros((window_length_in_units,1))
+            tmp_arr[:sequence.shape[0]]=sequence
+            sequence=tmp_arr
+            cut_data=[sequence.copy() for _ in range(self.num_chunks)]
+        else:
+            cut_data = cut_data_on_chunks(data=sequence, chunk_length=window_length_in_units,
                                       window_step=window_step_in_units)
         # check if we got as much chunks as we wanted
         if len(cut_data) != self.num_chunks:
-            raise ValueError('Function _cut_sequence_on_slices(). The number of cut chunks is not the same as '
+            if len(cut_data)+1==self.num_chunks:
+                cut_data.append(cut_data[-1].copy())
+            else:
+                raise ValueError('Function _cut_sequence_on_slices(). The number of cut chunks is not the same as '
                              'was computed in __init__() function. cut_data.shape[0]=%i, should be: %i'
                              % (len(cut_data), self.num_chunks))
         # concatenate cut chunks in np.ndarray
