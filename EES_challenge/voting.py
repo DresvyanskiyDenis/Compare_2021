@@ -6,7 +6,6 @@ import numpy as np
 import pandas as pd
 from scipy.stats import mode
 from sklearn.metrics import recall_score
-from geneticalgorithm import geneticalgorithm as ga
 
 def read_csv_file_with_predictions(path:str)->pd.DataFrame:
     df=pd.read_csv(path)

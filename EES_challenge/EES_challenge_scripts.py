@@ -1,6 +1,6 @@
 import gc
 import os
-from typing import Dict, Tuple
+from typing import Dict, Tuple, List, Union
 
 import tensorflow as tf
 import pandas as pd
@@ -21,9 +21,14 @@ def read_labels(path:str) -> Dict[str, np.ndarray]:
         result_dict[row['filename']]=np.array(row['label']).reshape((1,1))
     return result_dict
 
-def load_all_wav_files(path:str, resample:bool=False, new_sample_rate:int=16000)-> Dict[str,Tuple[np.ndarray, int]]:
+def load_all_wav_files(path:Union[str, List[str]], resample:bool=False, new_sample_rate:int=16000)-> Dict[str,Tuple[np.ndarray, int]]:
     loaded_wav_files={}
-    filenames=os.listdir(path)
+    if isinstance(path, str):
+        filenames=os.listdir(path)
+    elif isinstance(path, list):
+        filenames=path
+    else:
+        raise AttributeError('Path variable can be either string or list of strings. Got %s' % path)
     for filename in filenames:
         sample_rate,wav_file=load_wav_file(os.path.join(path,filename))
         # Resample data
@@ -36,21 +41,19 @@ def load_all_wav_files(path:str, resample:bool=False, new_sample_rate:int=16000)
         loaded_wav_files[filename]=(wav_file, sample_rate)
     return loaded_wav_files
 
-def test_different_features(feature_types:Tuple[str,...], sequence_max_length:float,
+def test_different_features(train_data:Dict[str,Tuple[np.ndarray, int]], train_labels:Dict[str, np.ndarray],
+                            val_data:Dict[str,Tuple[np.ndarray, int]], devel_labels:Dict[str, np.ndarray],
+                            feature_types:Tuple[str,...], sequence_max_length:float,
                             window_length:float, num_classes:int=3, path_to_save_results:str='results',
                             subwindow_size:float=0.2, subwindow_step:float=0.05) -> None:
-    path_to_train_data = 'C:\\EES_challenge_data\\wav\\train\\'
-    path_to_train_labels = 'C:\\EES_challenge_data\\lab\\train.csv'
-    path_to_devel_labels = 'C:\\EES_challenge_data\\lab\\devel.csv'
-    path_to_devel_data = 'C:\\EES_challenge_data\\wav\\dev\\'
     # params
     num_chunks = int(sequence_max_length / window_length)
     label_type = 'sequence_to_one'
-    batch_size = 4
+    batch_size = 16
     num_mfcc = 128
     # check if directory where results will be saved exists
     if not os.path.exists(path_to_save_results):
-        os.mkdir(path_to_save_results)
+        os.makedirs(path_to_save_results, exist_ok=True)
     # variable for logging
     results=[]
 
@@ -60,9 +63,6 @@ def test_different_features(feature_types:Tuple[str,...], sequence_max_length:fl
         if not os.path.exists(path_to_save_model):
             os.mkdir(path_to_save_model)
 
-        # load train data
-        train_labels = read_labels(path_to_train_labels)
-        train_data = load_all_wav_files(path_to_train_data, resample=True)
         train_generator = ChunksGenerator_preprocessing(sequence_max_length=sequence_max_length,
                                                         window_length=window_length,
                                                         data=train_data,
@@ -79,9 +79,6 @@ def test_different_features(feature_types:Tuple[str,...], sequence_max_length:fl
         del train_data
         gc.collect()
 
-        # load validation data
-        devel_labels = read_labels(path_to_devel_labels)
-        val_data = load_all_wav_files(path_to_devel_data, resample=True)
         devel_generator = ChunksGenerator_preprocessing(sequence_max_length=sequence_max_length,
                                                         window_length=window_length,
                                                         data=val_data,
@@ -151,6 +148,50 @@ def test_different_features(feature_types:Tuple[str,...], sequence_max_length:fl
         tf.keras.backend.clear_session()
     print(results)
 
+
+def load_partitions(path_to_partitions:str)->List[pd.DataFrame]:
+    filenames=os.listdir(path_to_partitions)
+    partitions=[]
+    for filename in filenames:
+        df=pd.read_csv(os.path.join(path_to_partitions, filename))
+        df = df[['filename', 'label']]
+        partitions.append(df)
+    return partitions
+
+def convert_df_labels_to_dict(df_labels:pd.DataFrame)-> Dict[str, np.ndarray]:
+    labels_dict={}
+    for row in df_labels.iterrows():
+        filename=row.iloc[0]
+        label=row.iloc[0]
+        label=np.ndarray(label).reshape((-1,1))
+        labels_dict[filename]=label
+    return labels_dict
+
+
+def cross_validation(feature_types:Tuple[str,...], sequence_max_length:float,
+                            window_length:float, num_classes:int=3, path_to_save_results:str='results',
+                            subwindow_size:float=0.2, subwindow_step:float=0.05,
+                            path_to_partitions:str=None) -> None:
+    partitions=load_partitions(path_to_partitions)
+    for cross_val_idx in range(len(partitions)):
+        train_labels=partitions.copy()
+        val_labels=train_labels.pop(cross_val_idx)
+        train_labels = convert_df_labels_to_dict(pd.concat(train_labels))
+        val_labels=convert_df_labels_to_dict(val_labels)
+        # load train and val data
+        train_data=load_all_wav_files(list(train_labels.keys()), resample=True)
+        val_data = load_all_wav_files(list(val_labels.keys()), resample=True)
+
+        test_different_features(train_data=train_data, train_labels=train_labels,
+        val_data=val_data, devel_labels=val_labels,
+        feature_types=feature_types, sequence_max_length=sequence_max_length,
+        window_length=window_length, num_classes = num_classes,
+        path_to_save_results=os.path.join(path_to_save_results, 'fold_%i'%(cross_val_idx+1)),
+        subwindow_size = subwindow_size, subwindow_step= subwindow_step)
+
+
+
+
 def custom_recall_validation_with_generator(generator:ChunksGenerator_preprocessing, model:tf.keras.Model)->float:
     total_predictions=np.zeros((0,))
     total_ground_truth=np.zeros((0,))
@@ -185,6 +226,10 @@ class validation_callback(tf.keras.callbacks.Callback):
 
 
 if __name__ == '__main__':
+    path_to_train_data = 'C:\\EES_challenge_data\\wav\\train\\'
+    path_to_train_labels = 'C:\\EES_challenge_data\\lab\\train.csv'
+    path_to_devel_labels = 'C:\\EES_challenge_data\\lab\\devel.csv'
+    path_to_devel_data = 'C:\\EES_challenge_data\\wav\\dev\\'
     # params
     sequence_max_length = 12
     window_length = 0.5
@@ -192,6 +237,13 @@ if __name__ == '__main__':
     subwindow_steps=(0.1,0.2)
     for subwindow_length in subwindow_lengths:
         for subwindow_step in subwindow_steps:
-            test_different_features(feature_types=('MFCC',),
+            # load train data
+            train_labels = read_labels(path_to_train_labels)
+            train_data = load_all_wav_files(path_to_train_data, resample=True)
+            # load validation data
+            devel_labels = read_labels(path_to_devel_labels)
+            val_data = load_all_wav_files(path_to_devel_data, resample=True)
+
+            test_different_features(train_data, train_labels, val_data, devel_labels, feature_types=('MFCC',),
                                     sequence_max_length=sequence_max_length, window_length=window_length,
                                     subwindow_size=subwindow_length,subwindow_step=subwindow_step)
