@@ -292,7 +292,7 @@ def chunk_based_rnn_attention_model(*, input_shape: Tuple[int, ...], num_output_
     if dropout: x = tf.keras.layers.Dropout(dropout_rate)(x)
     # squeeze the last dimension
     #x = tf.keras.layers.Reshape((x.shape[1:-1]))(x)
-    # average the second dimension - we will get averaged by timesteps results for every 'features' (last channel)
+    # average the second dimension - we will get averaged by timesteps test_predictions_train_normalizer for every 'features' (last channel)
     #x = layer_type(128, return_sequences=True, kernel_regularizer=regularization)(x)
     # attention part
     x = Attention(128)(x)
